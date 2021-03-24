@@ -1,31 +1,21 @@
-import requests
-from bs4 import BeautifulSoup
-import re
+import configparser
 
-
-def has_id_post(id):
-    return id and re.compile('post_').search(id)
+import classes
 
 
 def main():
-    r = requests.get('https://habr.com/ru/company/skillfactory/blog/')
-    soup = BeautifulSoup(r.content, 'lxml')
 
-    articles = soup.find_all('li', id=has_id_post)
+    sf_habr = classes.Parser('https://habr.com/ru/company/skillfactory/blog/')
 
-    for artcl in articles:
-        header = artcl.find('h2')
+    sf_habr.parse()
+
+    for post in sf_habr.get_all():
         print()
         print()
-        print(header.find('a').getText())
-        print(artcl.find('span', class_="post__time").getText())
-        print(header.a['href'])
-        print()
-
-        tags = artcl.find_all('li', class_="inline-list__item inline-list__item_hub")
-
-        for tag in tags:
-            print(tag.find('a').getText())
+        print(post.header)
+        print(post.url)
+        print(post.date_time)
+        print(post.tags)
 
 
 if __name__ == '__main__':
