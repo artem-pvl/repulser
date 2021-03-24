@@ -1,7 +1,10 @@
 import requests
-from bs4 import BeautifulSoup
 import re
 import datetime
+
+from bs4 import BeautifulSoup
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 
 
 class RepulserException(Exception):
@@ -97,32 +100,48 @@ class Parser:
     def __has_id_post(id_):
         return id_ and re.compile("post_").search(id_)
 
-    def parse(self, url=''):
+    def parse(self, url='', days=1):
         self.url = url or self.url
-
-        r = requests.get(self.url)
-        if r.status_code != 200:
-            raise SiteError(f'Site error: {r.status_code}')
+        url_append = ''
 
         self.articles = []
+        last_date = datetime.datetime.today()
+        next_page = 0
+
+        while datetime.timedelta(days=days) >= (datetime.datetime.today() - last_date):
+            if next_page:
+                url_append = 'page' + str(next_page) + '/'
+
+            r = requests.get(self.url+url_append)
+            if r.status_code != 200:
+                if next_page:
+                    return
+                raise SiteError(f'Site error: {r.status_code}')
+
+            soup = BeautifulSoup(r.content, 'lxml')
+
+            p_articles = soup.find_all('li', id=self.__has_id_post)
+
+            for p_artcl in p_articles:
+                post = Article()
+                header = p_artcl.find('h2')
+                post.header = header.find('a').getText()
+                post.date_time = p_artcl.find('span', class_="post__time").getText()
+                last_date = post.date_time
+                post.url = header.a['href']
+
+                tags = p_artcl.find_all('li', class_="inline-list__item inline-list__item_hub")
+                for tag in tags:
+                    post.add_tag(tag.find('a').getText())
+
+                self.articles.append(post)
+
+            if next_page:
+                next_page += 1
+            else:
+                next_page = 2
+
         self.parse_datetime = datetime.datetime.now()
-
-        soup = BeautifulSoup(r.content, 'lxml')
-
-        p_articles = soup.find_all('li', id=self.__has_id_post)
-
-        for p_artcl in p_articles:
-            post = Article()
-            header = p_artcl.find('h2')
-            post.header = header.find('a').getText()
-            post.date_time = p_artcl.find('span', class_="post__time").getText()
-            post.url = header.a['href']
-
-            tags = p_artcl.find_all('li', class_="inline-list__item inline-list__item_hub")
-            for tag in tags:
-                post.add_tag(tag.find('a').getText())
-
-            self.articles.append(post)
 
     def get_by_filter(self, dt: datetime.datetime, tags):
         res = list()
@@ -136,6 +155,48 @@ class Parser:
 
     def get_parse_datetime(self):
         return self.parse_datetime
+
+
+class SlackBot:
+    def __init__(self, token: str):
+        self.client = WebClient(token=token)
+        self.channels_dict = dict()
+        try:
+            for response in self.client.conversations_list():
+                self.channels_dict.update({channel["name"]: channel["id"] for channel in response["channels"]})
+        except SlackApiError as e:
+            print(f"Error: {e}")
+
+    def post_in_channel(self, channel_name: str, message: str, articles: [Article]):
+        marked_articles = '>- ' + '\n>- '.join([f'<{art.url}|{art.header}>' for art in articles])
+
+        try:
+            self.client.conversations_join(channel=self.channels_dict[channel_name])
+            self.client.chat_postMessage(
+                channel=self.channels_dict[channel_name],
+                text=f"{message}",
+                blocks=[
+                    {
+                        "type": "section",
+                        "text":
+                            {
+                                "type": "mrkdwn",
+                                "text": f"{message}"
+                            }
+                    },
+                    {
+                        "type": "section",
+                        "text":
+                            {
+                                "type": "mrkdwn",
+                                "text": f"{marked_articles}"
+                            }
+                    }
+                ]
+            )
+
+        except SlackApiError as e:
+            print(f"Error: {e}")
 
 
 class Config:
