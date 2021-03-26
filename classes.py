@@ -143,10 +143,10 @@ class Parser:
 
         self.parse_datetime = datetime.datetime.now()
 
-    def get_by_filter(self, dt: datetime.datetime, tags):
+    def get_by_filter(self, dt: datetime.datetime, tags: [str]):
         res = list()
         for elem in self.articles:
-            if (elem.date_time >= dt) and (elem.tags in set(tags)):
+            if (elem.date_time >= dt) and (elem.tags & set(tags)):
                 res.append(elem)
         return res
 
