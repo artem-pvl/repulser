@@ -52,30 +52,29 @@ def main():
         send_period = datetime.timedelta(days=1)
         last_send = datetime.datetime.now() - waiting_time
 
-    print(waiting_time.total_seconds())
-
     bot = classes.SlackBot(config[SECTION][BOT_TOKEN])
+    if not bot.check_channel(config[SECTION][CHANNEL]):
+        raise classes.ConfigError(f'Канал не найден! Проверте имя Slack канала в файле настроек: '
+                                  f'{config[SECTION][CHANNEL]}')
+
 
     sf_habr = classes.Parser(config[SECTION][HABR_BLOG])
 
     while True:
-        print(datetime.datetime.now().isoformat())
+        print(f'Следующий парсинг/рассылка через {waiting_time.total_seconds()} секунд: '
+              f'{(datetime.datetime.now()+waiting_time).strftime("%d.%m.%Y %H:%M")}')
         time.sleep(waiting_time.total_seconds())
-        print(datetime.datetime.now().isoformat())
 
         sf_habr.parse(days=send_period.days)
-        for post in sf_habr.get_all():
-            print()
-            print()
-            print(post.header)
-            print(post.url)
-            print(post.date_time)
-            print(post.tags)
+        filtered_articles = sf_habr.get_by_filter(last_send, get_tags(config[SECTION][TAGS]))
+        print(f'С {last_send.strftime("%d.%m.%Y %H:%M")} найдено {len(filtered_articles)} статей:')
+        for article in filtered_articles:
+            print(f'{article.url}')
+            print(f'{article.header}')
+            print(f'{article.date_time}')
+            print(f'{article.tags}\n')
 
-        print(f'last_send {last_send}')
-        print(config[SECTION][TAGS])
-        bot.post_in_channel(config[SECTION][CHANNEL], config[SECTION][TEXT],
-                            sf_habr.get_by_filter(last_send, get_tags(config[SECTION][TAGS])))
+        bot.post_in_channel(config[SECTION][CHANNEL], config[SECTION][TEXT], filtered_articles)
         last_send = sf_habr.parse_datetime
         if config[SECTION][SEND_PERIOD]:
             waiting_time = datetime.datetime.combine((last_send + send_period).date(), send_time)\
@@ -84,11 +83,11 @@ def main():
             config_write(config, CONFIG_FILE_NAME)
         else:
             waiting_time = poll_period
-        print(f'new poll: {waiting_time.total_seconds()}')
 
 
 def get_tags(string: str):
-    return {tg.strip().lower() for tg in string.split(',')}
+    return None if not string else {tg.strip().lower() for tg in string.split(',')}
+
 
 SECTION = 'options'
 HABR_BLOG = 'habr_blog'
@@ -212,26 +211,29 @@ def config_read(file_name: str):
 
 def config_write(config: configparser.ConfigParser, file_name: str):
     config_instruction = f'# Это файл конфигурации программы repulser.\n\n' \
-                         f'# Файл должен содержать раздел [{SECTION}] \n\n' \
+                         f'# Файл должен содержать раздел [{SECTION}]!\n\n' \
                          f'# Описание параметров раздела:\n' \
                          f'# {HABR_BLOG} = https://habr.com/ru/company/skillfactory/blog/\n' \
-                         f'#Параметр {HABR_BLOG} задает ссылку на блог Skillfactory на habr.com.\n' \
-                         f'#Параметр обязательно должен быть задан!\n\n' \
-                         f'#{POLL_PERIOD} = 5\n' \
-                         f'#Параметр {POLL_PERIOD} задает период проверки новых статей на блоге в минутах.\n' \
-                         f'#Если задан параметр {SEND_PERIOD} - то параметр {POLL_PERIOD} не исползуется.\n\n' \
-                         f'#{BOT_TOKEN} = <токен вашего Slack-бота>\n' \
-                         f'#В параметр {BOT_TOKEN} указывается токен вашего Slak-бота.\n' \
-                         f'#Параметр обязательно должен быть задан!\n\n' \
-                         f'#{CHANNEL} = <имя канала>\n' \
-                         f'#В параметре {CHANNEL} нужно указать канал в Slack куда будет осуществляться рассылка.\n' \
-                         f'#Параметр обязательно должен быть задан!\n\n' \
-                         f'#{TEXT} = <текст сообщения в Slack>\n' \
-                         f'#В параметре {TEXT} задается текст сообщения, которое будет отправлено в Slack\n\n' \
-                         f'#{TAGS} = <тэги для фильтрации постов, через запятую>\n' \
-                         f'#В параметре {TAGS} задаются тэги для фильтрации постов, которые будут отправлены в ' \
+                         f'# Параметр {HABR_BLOG} задает ссылку на блог Skillfactory на habr.com.\n' \
+                         f'# Параметр обязательно должен быть задан!\n\n' \
+                         f'# {POLL_PERIOD} = 5\n' \
+                         f'# Параметр {POLL_PERIOD} задает период проверки новых статей на блоге в минутах.\n' \
+                         f'# Если задан параметр {SEND_PERIOD} - то параметр {POLL_PERIOD} не исползуется\n\n' \
+                         f'# {BOT_TOKEN} = <токен вашего Slack-бота>\n' \
+                         f'# В параметре {BOT_TOKEN} указывается токен вашего Slak-бота.\n' \
+                         f'# У бота должны быть следующие допуски (scopes): channels:join, channels:read, ' \
+                         f'chat:write.\n' \
+                         f'# Параметр обязательно должен быть задан!\n\n' \
+                         f'# {CHANNEL} = <имя канала>\n' \
+                         f'# В параметре {CHANNEL} нужно указать канал в Slack куда будет осуществляться рассылка.\n' \
+                         f'# Параметр обязательно должен быть задан!\n\n' \
+                         f'# {TEXT} = <текст сообщения в Slack>\n' \
+                         f'# В параметре {TEXT} задается текст сообщения, которое будет отправлено в Slack\n\n' \
+                         f'# {TAGS} = <тэги для фильтрации постов, через запятую>\n' \
+                         f'# В параметре {TAGS} задаются тэги для фильтрации постов, которые будут отправлены в ' \
                          f'Slack.\n' \
-                         f'# Указываются через запятую. Для отправки всех постов оставьте параметр пустым\n\n' \
+                         f'# Указываются через запятую. Будут отправлены только те статьи, где содержаться ВСЕ \n' \
+                         f'# указанные тэги. Для отправки всех постов оставьте параметр пустым\n\n' \
                          f'# {SEND_PERIOD} = 1\n' \
                          f'# В параметре {SEND_PERIOD} указывается период в днях для рассылки постов.\n' \
                          f'# Рассылка будет осуществлена во время, указанное в параметре {SEND_TIME}.\n' \
@@ -240,15 +242,17 @@ def config_write(config: configparser.ConfigParser, file_name: str):
                          f'{POLL_PERIOD}\n' \
                          f'# (в минутах) и сразу рассылаться\n\n' \
                          f'# {SEND_TIME} = 9:30\n' \
-                         f'# В параметре {SEND_TIME} задается время рассылки новых постов в формате HH:MM\n\n' \
+                         f'# В параметре {SEND_TIME} задается время рассылки новых постов в формате HH:MM,\n' \
+                         f'# если указан параметр {SEND_PERIOD}.\n' \
+                         f'# Если {SEND_TIME} не задан, то рассылка будет осуществляться в момент времени запуска' \
+                         f' программы\n\n'\
                          f'# {LAST_SEND} = 2021-04-03T19:02:28.176633\n' \
                          f'# В параметре {LAST_SEND} указана дата и время последней рассылки.\n' \
                          f'# Елси параметр будет не задан, программа осуществит рассылку в ближайшее время, ' \
                          f'указанное\n' \
                          f'# в параметре {SEND_TIME}, при этом будут высланы все посты опубликованные за ' \
                          f'количество \n' \
-                         f'# дней, указанных в {SEND_PERIOD} до времени {SEND_TIME}.\n' \
-                         f'# Если {SEND_TIME} не задан, то рассылка будет осуществлена в момент запуска программы.\n\n'
+                         f'# дней, указанных в {SEND_PERIOD} до времени {SEND_TIME}.\n\n' \
 
     with open(file_name, 'w', encoding='utf-8') as configfile:
         configfile.write(config_instruction)

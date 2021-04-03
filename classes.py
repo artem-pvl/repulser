@@ -174,6 +174,9 @@ class SlackBot:
         except SlackApiError as e:
             print(f"Error: {e}")
 
+    def check_channel(self, channel: str):
+        return channel in self.channels_dict
+
     def post_in_channel(self, channel_name: str, message: str, articles: [Article]):
         if articles:
             marked_articles = '>- ' + '\n>- '.join([f'<{art.url}|{art.header}>' for art in articles])
