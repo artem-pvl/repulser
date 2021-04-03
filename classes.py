@@ -15,6 +15,10 @@ class SiteError(RepulserException):
     pass
 
 
+class ConfigError(RepulserException):
+    pass
+
+
 class Article:
     MONTH = {
         'января': '1',
@@ -109,6 +113,7 @@ class Parser:
         next_page = 0
 
         while datetime.timedelta(days=days) >= (datetime.datetime.today() - last_date):
+            self.parse_datetime = datetime.datetime.now()
             if next_page:
                 url_append = 'page' + str(next_page) + '/'
 
@@ -141,13 +146,15 @@ class Parser:
             else:
                 next_page = 2
 
-        self.parse_datetime = datetime.datetime.now()
-
-    def get_by_filter(self, dt: datetime.datetime, tags: [str]):
+    def get_by_filter(self, from_dt: datetime.datetime, tags: {str}):
         res = list()
         for elem in self.articles:
-            if (elem.date_time >= dt) and (elem.tags & set(tags)):
-                res.append(elem)
+            if tags:
+                if (elem.date_time >= from_dt) and (tags <= elem.tags):
+                    res.append(elem)
+            else:
+                if elem.date_time >= from_dt:
+                    res.append(elem)
         return res
 
     def get_all(self):
@@ -158,7 +165,7 @@ class Parser:
 
 
 class SlackBot:
-    def __init__(self, token: str):
+    def __init__(self, token):
         self.client = WebClient(token=token)
         self.channels_dict = dict()
         try:
@@ -168,35 +175,36 @@ class SlackBot:
             print(f"Error: {e}")
 
     def post_in_channel(self, channel_name: str, message: str, articles: [Article]):
-        marked_articles = '>- ' + '\n>- '.join([f'<{art.url}|{art.header}>' for art in articles])
+        if articles:
+            marked_articles = '>- ' + '\n>- '.join([f'<{art.url}|{art.header}>' for art in articles])
 
-        try:
-            self.client.conversations_join(channel=self.channels_dict[channel_name])
-            self.client.chat_postMessage(
-                channel=self.channels_dict[channel_name],
-                text=f"{message}",
-                blocks=[
-                    {
-                        "type": "section",
-                        "text":
-                            {
-                                "type": "mrkdwn",
-                                "text": f"{message}"
-                            }
-                    },
-                    {
-                        "type": "section",
-                        "text":
-                            {
-                                "type": "mrkdwn",
-                                "text": f"{marked_articles}"
-                            }
-                    }
-                ]
-            )
+            try:
+                self.client.conversations_join(channel=self.channels_dict[channel_name])
+                self.client.chat_postMessage(
+                    channel=self.channels_dict[channel_name],
+                    text=f"{message}",
+                    blocks=[
+                        {
+                            "type": "section",
+                            "text":
+                                {
+                                    "type": "mrkdwn",
+                                    "text": f"{message}"
+                                }
+                        },
+                        {
+                            "type": "section",
+                            "text":
+                                {
+                                    "type": "mrkdwn",
+                                    "text": f"{marked_articles}"
+                                }
+                        }
+                    ]
+                )
 
-        except SlackApiError as e:
-            print(f"Error: {e}")
+            except SlackApiError as e:
+                print(f"Error: {e}")
 
 
 class Config:
