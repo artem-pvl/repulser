@@ -57,7 +57,6 @@ def main():
         raise classes.ConfigError(f'Канал не найден! Проверте имя Slack канала в файле настроек: '
                                   f'{config[SECTION][CHANNEL]}')
 
-
     sf_habr = classes.Parser(config[SECTION][HABR_BLOG])
 
     while True:
